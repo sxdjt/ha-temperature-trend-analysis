@@ -92,7 +92,6 @@ def calculate_temperature_statistics(file_path):
     # Output results
     print(f"Mean Temperature: {mean_temp:.2f}°F")
     print(f"Median Temperature: {median_temp:.2f}°F")
-#    print(f"Standard Deviation of Temperature: {std_dev_temp:.2f}°F")
     print(f"Max Temperature: {max_temp:.2f}°F")
     print(f"Min Temperature: {min_temp:.2f}°F\n")
     
