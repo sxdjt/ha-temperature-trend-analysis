@@ -20,8 +20,12 @@ def calculate_temperature_statistics(file_path, baseline_temp=65):
     df['temperature'] = df['state'].astype(float)
     df['timestamp'] = pd.to_datetime(df['last_changed'])
 
-    # Sort by timestamp to ensure correct time differences
+    # Sort by timestamp to ensure correct time differences and min/max timestamps
     df = df.sort_values(by='timestamp').reset_index(drop=True)
+
+    # Get start and end timestamps
+    start_timestamp = df['timestamp'].iloc[0]
+    end_timestamp = df['timestamp'].iloc[-1]
 
     # Calculate time difference in hours for trend analysis
     df['hours'] = (df['timestamp'] - df['timestamp'].iloc[0]).dt.total_seconds() / 3600
@@ -94,7 +98,7 @@ def calculate_temperature_statistics(file_path, baseline_temp=65):
 
     # --- Prepare data for daily/hourly analysis by resampling to hourly means ---
     # Set timestamp as index and resample to hourly means
-    hourly_df = df.set_index('timestamp')['temperature'].resample('H').mean().to_frame()
+    hourly_df = df.set_index('timestamp')['temperature'].resample('h').mean().to_frame()
     hourly_df.columns = ['temperature']
     hourly_df = hourly_df.dropna() # Drop hours with no data
 
@@ -115,11 +119,15 @@ def calculate_temperature_statistics(file_path, baseline_temp=65):
     # --- Temporal Patterns & Cycles (using resampled hourly data) ---
     hourly_df['day_of_week'] = hourly_df.index.day_name()
     hourly_df['hour_of_day'] = hourly_df.index.hour
-    hourly_df['month'] = hourly_df.index.month_name()
+    # Removed hourly_df['month'] calculation
 
     avg_temp_by_hour = hourly_df.groupby('hour_of_day')['temperature'].mean()
-    avg_temp_by_day_of_week = hourly_df.groupby('day_of_week')['temperature'].mean()
-    avg_temp_by_month = hourly_df.groupby('month')['temperature'].mean()
+    # Ensure correct order for day of week and explicitly set observed=False
+    avg_temp_by_day_of_week = hourly_df.groupby(pd.Categorical(hourly_df['day_of_week'],
+                                                               categories=['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+                                                               ordered=True), observed=False)['temperature'].mean()
+    # Removed avg_temp_by_month calculation
+
 
     # Diurnal Temperature Range (DTR)
     daily_max_temp = hourly_df.groupby('date')['temperature'].max()
@@ -132,7 +140,6 @@ def calculate_temperature_statistics(file_path, baseline_temp=65):
     # Check if there's enough data for meaningful autocorrelation
     if len(hourly_df) > 1:
         lag_1_correlation = hourly_df['temperature'].autocorr(lag=1) # 1-hour lag
-        # You can add more lags if desired, e.g., lag=24 for daily cycle
         lag_24_correlation = hourly_df['temperature'].autocorr(lag=24) if len(hourly_df) > 24 else None
     else:
         lag_1_correlation = None
@@ -142,37 +149,41 @@ def calculate_temperature_statistics(file_path, baseline_temp=65):
 
     # Heat/Cold Spells (Example thresholds: Heat > 80F, Cold < 40F)
     heat_threshold = 80
-    cold_threshold = 50
+    cold_threshold = 40
 
     # Heat Spells
     hourly_df['is_hot'] = hourly_df['temperature'] > heat_threshold
     # Identify contiguous blocks of 'True' (hot)
-    hourly_df['heat_spell_id'] = (hourly_df['is_hot'] != hourly_df['is_hot'].shift()).cumsum()
-    heat_spells = hourly_df[hourly_df['is_hot']].groupby('heat_spell_id')
+    hourly_df['heat_spell_id'] = (hourly_df['is_hot'] != hourly_df['is_hot'].shift(1)).cumsum()
+    heat_spells_data = hourly_df[hourly_df['is_hot']] # Filter for hot periods
+    heat_spells_grouped = heat_spells_data.groupby('heat_spell_id')
 
-    num_heat_spells = len(heat_spells)
+
+    num_heat_spells = len(heat_spells_grouped)
     avg_heat_spell_duration = 0
     avg_heat_spell_intensity = 0
 
     if num_heat_spells > 0:
-        heat_spell_durations = [len(group) for _, group in heat_spells]
-        heat_spell_intensities = [group['temperature'].mean() - heat_threshold for _, group in heat_spells]
+        heat_spell_durations = [len(group) for _, group in heat_spells_grouped]
+        heat_spell_intensities = [group['temperature'].mean() - heat_threshold for _, group in heat_spells_grouped]
         avg_heat_spell_duration = sum(heat_spell_durations) / num_heat_spells
         avg_heat_spell_intensity = sum(heat_spell_intensities) / num_heat_spells
 
     # Cold Spells
     hourly_df['is_cold'] = hourly_df['temperature'] < cold_threshold
     # Identify contiguous blocks of 'True' (cold)
-    hourly_df['cold_spell_id'] = (hourly_df['is_cold'] != hourly_df['is_cold'].shift()).cumsum()
-    cold_spells = hourly_df[hourly_df['is_cold']].groupby('cold_spell_id')
+    hourly_df['cold_spell_id'] = (hourly_df['is_cold'] != hourly_df['is_cold'].shift(1)).cumsum()
+    cold_spells_data = hourly_df[hourly_df['is_cold']] # Filter for cold periods
+    cold_spells_grouped = cold_spells_data.groupby('cold_spell_id')
 
-    num_cold_spells = len(cold_spells)
+
+    num_cold_spells = len(cold_spells_grouped)
     avg_cold_spell_duration = 0
     avg_cold_spell_intensity = 0
 
     if num_cold_spells > 0:
-        cold_spell_durations = [len(group) for _, group in cold_spells]
-        cold_spell_intensities = [cold_threshold - group['temperature'].mean() for _, group in cold_spells]
+        cold_spell_durations = [len(group) for _, group in cold_spells_grouped]
+        cold_spell_intensities = [cold_threshold - group['temperature'].mean() for _, group in cold_spells_grouped]
         avg_cold_spell_duration = sum(cold_spell_durations) / num_cold_spells
         avg_cold_spell_intensity = sum(cold_spell_intensities) / num_cold_spells
 
@@ -188,6 +199,10 @@ def calculate_temperature_statistics(file_path, baseline_temp=65):
     num_abrupt_changes = len(abrupt_changes)
 
     # --- Output Results ---
+    print("--- Analysis Period ---")
+    print(f"Data Start Timestamp: {start_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Data End Timestamp:   {end_timestamp.strftime('%Y-%m-%d %H:%M:%S')}\n")
+
     print("--- Overall Temperature Statistics ---")
     print(f"Mean Temperature: {mean_temp:.2f}°F")
     print(f"Median Temperature: {median_temp:.2f}°F")
@@ -213,8 +228,9 @@ def calculate_temperature_statistics(file_path, baseline_temp=65):
     print(avg_temp_by_hour.map('{:.2f}°F'.format).to_string())
     print("\nAverage Temperature by Day of Week:")
     print(avg_temp_by_day_of_week.map('{:.2f}°F'.format).to_string())
-    print("\nAverage Temperature by Month:")
-    print(avg_temp_by_month.map('{:.2f}°F'.format).to_string())
+    # Removed print statement for Average Temperature by Month:
+
+
     print(f"\nAverage Daily Temperature Range (DTR): {avg_daily_dtr:.2f}°F")
     print(f"Maximum Daily Temperature Range (DTR): {max_daily_dtr:.2f}°F")
 
@@ -245,8 +261,9 @@ def calculate_temperature_statistics(file_path, baseline_temp=65):
     print(f"  Number of Abrupt Changes Detected: {num_abrupt_changes}")
     if num_abrupt_changes > 0:
         print("  Timestamps of Abrupt Changes:")
+        # Display only the date and time from the index
         for idx, row in abrupt_changes.iterrows():
-            print(f"    - {row.name.strftime('%Y-%m-%d %H:%M')}: Change of {row['hourly_temp_diff']:.2f}°F")
+            print(f"    - {idx.strftime('%Y-%m-%d %H:%M')}: Change of {row['hourly_temp_diff']:.2f}°F")
 
 
 if __name__ == "__main__":
