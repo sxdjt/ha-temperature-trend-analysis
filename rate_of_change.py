@@ -288,8 +288,10 @@ def calculate_temperature_statistics(df: pd.DataFrame, baseline_temp: float = 65
 
     # --- Output Results ---
     print(f"\n")
-    print(f"--- TEMPERATURE DATA ANALYSIS REPORT ---")
-    print(f"\n")
+    print(f"============================================================")
+    print(f"TEMPERATURE DATA ANALYSIS")
+    print(f"============================================================\n")
+
 
     print(f"Analysis Period")
     print(f"------------------------------------------------------------")
