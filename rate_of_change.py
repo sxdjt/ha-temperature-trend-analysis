@@ -7,8 +7,6 @@ from datetime import datetime, timedelta, timezone
 import requests
 import os # For environment variables
 
-# Removed Colors class as pretty printing is no longer a capability
-
 def fetch_data_from_home_assistant(ha_url: str, ha_token: str, sensor_name: str,
                                    start_date: datetime, end_date: datetime) -> pd.DataFrame:
     """
@@ -25,7 +23,6 @@ def fetch_data_from_home_assistant(ha_url: str, ha_token: str, sensor_name: str,
         pd.DataFrame: A DataFrame containing 'entity_id', 'state', and 'last_changed' columns,
                       or an empty DataFrame if no data is found or an error occurs.
     """
-    # No colors or special formatting for fetch messages
     
     # Ensure dates are timezone-aware UTC for HA API
     # If the input datetimes from argparse are naive, assume they are local and convert to UTC
@@ -331,7 +328,7 @@ def calculate_temperature_statistics(df: pd.DataFrame, baseline_temp: float = 65
 
     print(f"Temporal Patterns")
     print(f"============================================================\n")
-    
+
     print(f"Average Temperature by Hour of Day")
     print(avg_temp_by_hour.rename("Avg. Temp (°F)").to_frame().map('{:.2f}'.format).to_string()) # Changed to to_string()
 
