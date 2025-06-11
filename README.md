@@ -1,4 +1,4 @@
-A first attempt at creating rate of change and other statistics, using Home Assitant historical data.  Basically, I want to see how fast my garage heats and cools.
+A first attempt at creating rate of change and other statistics, using Home Assitant historical data. 
 
 _Note: The script defaults to pulling the last 30 days of data; my HA integration was reset recently and only has a few days' worth._
 
