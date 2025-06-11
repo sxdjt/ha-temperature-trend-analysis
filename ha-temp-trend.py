@@ -48,7 +48,7 @@ def fetch_data_from_home_assistant(ha_url: str, ha_token: str, sensor_name: str,
         "minimal_response": "true" # Get only state, last_changed, context
     }
 
-    print(f"Fetching data from Home Assistant for '{sensor_name}' from {start_date.strftime('%Y-%m-%d %H:%M')} to {end_date.strftime('%Y-%m-%d %H:%M')} (UTC)...")
+    print(f"\n* Fetching data from Home Assistant for '{sensor_name}' from {start_date.strftime('%Y-%m-%d %H:%M')} to {end_date.strftime('%Y-%m-%d %H:%M')} (UTC)...")
 
     try:
         response = requests.get(api_url, headers=headers, params=params, timeout=30)
@@ -57,7 +57,7 @@ def fetch_data_from_home_assistant(ha_url: str, ha_token: str, sensor_name: str,
         data = response.json()
 
         if not data or not isinstance(data, list) or not data[0]:
-            print(f"No data found for sensor '{sensor_name}' in the specified period from Home Assistant.")
+            print(f"\n\n*** No data found for sensor '{sensor_name}' in the specified period from Home Assistant.\n\n")
             return pd.DataFrame()
 
         # HA returns a list of lists (grouped by entity_id, even if just one)
@@ -73,15 +73,15 @@ def fetch_data_from_home_assistant(ha_url: str, ha_token: str, sensor_name: str,
             })
 
         df = pd.DataFrame(extracted_data)
-        print(f"Successfully fetched {len(df)} records from Home Assistant.")
+        print(f"* Successfully fetched {len(df)} records from Home Assistant.")
         return df
 
     except requests.exceptions.RequestException as e:
-        print(f"Error connecting to Home Assistant: {e}")
-        print(f"Please ensure the URL is correct, Home Assistant is running, and your token is valid.")
+        print(f"\n\n*** Error connecting to Home Assistant: {e}")
+        print(f"*** Please ensure the URL is correct, Home Assistant is running, and your token is valid.\n\n")
         return pd.DataFrame()
     except Exception as e:
-        print(f"An unexpected error occurred while fetching HA data: {e}")
+        print(f"\n\n*** An unexpected error occurred while fetching HA data: {e}\n\n")
         return pd.DataFrame()
 
 def calculate_temperature_statistics(df: pd.DataFrame, baseline_temp: float = 65) -> None:
@@ -102,27 +102,40 @@ def calculate_temperature_statistics(df: pd.DataFrame, baseline_temp: float = 65
     H2 = "" # No markdown H2, just plain
     H3 = "" # No markdown H3, just plain
     
+    # --- Determine the local timezone ---
+    # This will be used for all displayed timestamps and time-based groupings
+    local_tz = datetime.now().astimezone().tzinfo
+
     # --- Data Preprocessing ---
     required_columns = ['entity_id', 'state', 'last_changed']
     if not all(col in df.columns for col in required_columns):
-        raise ValueError(f"The input DataFrame must contain {', '.join(required_columns)} columns.")
+        raise ValueError(f"\n\n*** The input DataFrame must contain {', '.join(required_columns)} columns.\n\n")
 
     initial_rows = len(df)
     # Apply .copy() here to ensure you're working on a new DataFrame
     df = df[~df['state'].isin(['unavailable', 'unknown', 'None', 'null'])].copy()
     df['state'] = pd.to_numeric(df['state'], errors='coerce')
     df = df.dropna(subset=['state'])
-    print(f"Filtered out {initial_rows - len(df)} non-numeric/unavailable temperature readings.")
+    print(f"* Filtered out {initial_rows - len(df)} non-numeric/unavailable temperature readings.")
 
     df['temperature'] = df['state'].astype(float)
     df['timestamp'] = pd.to_datetime(df['last_changed'])
 
+    # Ensure timestamps are timezone-aware (HA provides UTC typically) and then convert to local_tz
+    if df['timestamp'].dt.tz is None:
+        # If timestamps are naive, assume UTC as HA usually provides UTC and localize before converting
+        df['timestamp'] = df['timestamp'].dt.tz_localize(timezone.utc)
+    
+    # Convert all timestamps in the DataFrame to the local timezone for consistent processing and display
+    df['timestamp'] = df['timestamp'].dt.tz_convert(local_tz)
+
     df = df.sort_values(by='timestamp').reset_index(drop=True)
 
     if df.empty:
-        print("No valid temperature data remaining after cleaning. Exiting analysis.")
+        print("\n\n*** No valid temperature data remaining after cleaning. Exiting analysis.\n\n")
         return
 
+    # Use the now local-timezone-aware timestamps for start/end
     start_timestamp = df['timestamp'].iloc[0]
     end_timestamp = df['timestamp'].iloc[-1]
 
@@ -185,30 +198,13 @@ def calculate_temperature_statistics(df: pd.DataFrame, baseline_temp: float = 65
     avg_cool_r_squared = sum(cool_r_squared) / len(cool_r_squared) if cool_r_squared else 0
 
     # --- Prepare data for daily/hourly analysis by resampling to hourly means ---
-    # Ensure timezone-aware resampling
-    # Convert 'timestamp' to a timezone-aware index for resampling
-    # If timestamps are naive, assume they are in local system timezone for resampling
-    # and then convert to UTC for consistent display in the report.
-    if df['timestamp'].dt.tz is None:
-        # If naive, localize to current system timezone (useful for HA data which might be local)
-        try:
-            local_tz = datetime.now().astimezone().tzinfo
-            df['timestamp'] = df['timestamp'].dt.tz_localize(local_tz)
-        except Exception:
-            # Fallback if tz_localize fails, use UTC
-            df['timestamp'] = df['timestamp'].dt.tz_localize('UTC')
-            print("Warning: Could not localize timestamp to system timezone; assuming UTC for resampling.")
-    
+    # Resample to hourly means. The index of hourly_df will already be in local_tz
+    # because df['timestamp'] was converted above.
     hourly_df = df.set_index('timestamp')['temperature'].resample('h').mean().to_frame()
     hourly_df.columns = ['temperature']
     hourly_df = hourly_df.dropna()
     
-    # Convert back to UTC for consistent display in report, if not already
-    if hourly_df.index.tz is not None and hourly_df.index.tz != timezone.utc:
-        hourly_df = hourly_df.tz_convert('UTC')
-    elif hourly_df.index.tz is None: # If it's still naive after resampling
-         hourly_df = hourly_df.tz_localize('UTC')
-
+    # No further tz_convert needed here, as it's already in local_tz for display.
 
     if hourly_df.empty:
         print("Not enough hourly data to perform detailed daily/hourly analysis. Some sections will be skipped.")
@@ -256,11 +252,14 @@ def calculate_temperature_statistics(df: pd.DataFrame, baseline_temp: float = 65
     avg_heat_spell_duration = 0
     avg_heat_spell_intensity = 0
 
+    # ... (inside calculate_temperature_statistics function)
+
     if num_heat_spells > 0:
         heat_spell_durations = [len(group) for _, group in heat_spells_grouped]
         heat_spell_intensities = [group['temperature'].mean() - heat_threshold for _, group in heat_spells_grouped]
         avg_heat_spell_duration = sum(heat_spell_durations) / num_heat_spells
-        avg_heat_spell_intensity = sum(heat_spell_intensities) / num_heat_spells
+        # Fix: Divide by num_heat_spells, not an undefined variable
+        avg_heat_spell_intensity = sum(heat_spell_intensities) / num_heat_spells 
 
     hourly_df['is_cold'] = hourly_df['temperature'] < cold_threshold
     hourly_df['cold_spell_id'] = (hourly_df['is_cold'] != hourly_df['is_cold'].shift(1)).cumsum()
@@ -275,8 +274,10 @@ def calculate_temperature_statistics(df: pd.DataFrame, baseline_temp: float = 65
         cold_spell_durations = [len(group) for _, group in cold_spells_grouped]
         cold_spell_intensities = [cold_threshold - group['temperature'].mean() for _, group in cold_spells_grouped]
         avg_cold_spell_duration = sum(cold_spell_durations) / num_cold_spells
-        avg_cold_spell_intensity = sum(cold_spell_intensities) / num_cold_spells
+        # Fix: Divide by num_cold_spells, not an undefined variable
+        avg_cold_spell_intensity = sum(cold_spell_intensities) / num_cold_spells 
 
+    # ... (rest of the function)
     hourly_df['hourly_temp_diff'] = hourly_df['temperature'].diff().abs()
     mean_hourly_diff = hourly_df['hourly_temp_diff'].mean()
     std_hourly_diff = hourly_df['hourly_temp_diff'].std()
@@ -294,19 +295,20 @@ def calculate_temperature_statistics(df: pd.DataFrame, baseline_temp: float = 65
 
 
     print(f"Analysis Period")
-    print(f"------------------------------------------------------------")
+    print(f"------------------------------------------------------------\n")
+    # Display timestamps in local timezone
     print(f"Start: {start_timestamp.strftime('%Y-%m-%d %H:%M:%S %Z')}")
     print(f"End:   {end_timestamp.strftime('%Y-%m-%d %H:%M:%S %Z')}\n")
 
     print(f"\nBasic Temperature Statistics")
-    print(f"------------------------------------------------------------")
+    print(f"------------------------------------------------------------\n")
     basic_stats_data = {
         'Metric': ['Mean Temperature', 'Median Temperature', 'Max Temperature', 'Min Temperature', 'Standard Deviation'],
         'Value (°F)': [mean_temp, median_temp, max_temp, min_temp, std_dev_temp]
     }
     basic_stats_df = pd.DataFrame(basic_stats_data).set_index('Metric')
     basic_stats_df['Value (°F)'] = basic_stats_df['Value (°F)'].map('{:.2f}'.format)
-    print(basic_stats_df.to_string()) # Changed to to_string()
+    print(basic_stats_df.to_string())
     print("\n")
 
     print(f"Trend Analysis Summary")
@@ -323,8 +325,7 @@ def calculate_temperature_statistics(df: pd.DataFrame, baseline_temp: float = 65
     trend_summary_df['Avg Duration (hours)'] = trend_summary_df['Avg Duration (hours)'].map('{:.2f}'.format)
     trend_summary_df['Avg Range (°F)'] = trend_summary_df['Avg Range (°F)'].map('{:.2f}'.format)
     trend_summary_df['Avg R-squared'] = trend_summary_df['Avg R-squared'].map('{:.4f}'.format)
-    print(trend_summary_df.to_string()) # Changed to to_string()
-
+    print(trend_summary_df.to_string())
     print(f"\nHeating Degree Days (Baseline {baseline_temp}°F): {heating_degree_days:.2f}")
     print(f"Cooling Degree Days (Baseline {baseline_temp}°F): {cooling_degree_days:.2f}\n")
 
@@ -332,68 +333,50 @@ def calculate_temperature_statistics(df: pd.DataFrame, baseline_temp: float = 65
     print(f"============================================================\n")
 
     print(f"Average Temperature by Hour of Day")
-    print(avg_temp_by_hour.rename("Avg. Temp (°F)").to_frame().map('{:.2f}'.format).to_string()) # Changed to to_string()
+    print(avg_temp_by_hour.rename("Avg. Temp (°F)").to_frame().map('{:.2f}'.format).to_string())
 
     print(f"\nAverage Temperature by Day of Week")
-    print(f"------------------------------------------------------------")
-    print(avg_temp_by_day_of_week.rename("Avg. Temp (°F)").to_frame().map('{:.2f}'.format).to_string()) # Changed to to_string()
+    print(f"------------------------------------------------------------\n")
+    print(avg_temp_by_day_of_week.rename("Avg. Temp (°F)").to_frame().map('{:.2f}'.format).to_string())
 
     print(f"\nAverage Daily Temperature Range: {avg_daily_dtr:.2f}°F")
     print(f"Maximum Daily Temperature Range: {max_daily_dtr:.2f}°F\n")
 
-#    print(f"\nTime Series Correlation")
-#    print(f"------------------------------------------------------------")
-#    if lag_1_correlation is not None and lag_24_correlation is not None:
-#        correlation_data = {
-#            'Lag': ['1-hour', '24-hour (daily cycle)'],
-#            'Autocorrelation': [lag_1_correlation, lag_24_correlation]
-#        }
-#        correlation_df = pd.DataFrame(correlation_data).set_index('Lag')
-#        correlation_df['Autocorrelation'] = correlation_df['Autocorrelation'].map('{:.4f}'.format)
-#        print(correlation_df.to_string()) # Changed to to_string()
-#    elif lag_1_correlation is not None:
-#        print(f"Autocorrelation with 1-hour lag: {lag_1_correlation:.4f}")
-#        print(f"Not enough data for 24-hour lag autocorrelation.")
-#    else:
-#        print(f"Not enough data for meaningful autocorrelation analysis.")
-#    print("\n")
-
     print(f"\nExtreme Events & Anomaly Detection")
     print(f"============================================================\n")
     print(f"Heat Spells (Temperature > {heat_threshold}°F)")
-    print(f"------------------------------------------------------------")
+    print(f"------------------------------------------------------------\n")
     heat_spell_data = {
         'Metric': ['Number of Heat Spells', 'Average Duration', 'Average Intensity (above threshold)'],
         'Value': [num_heat_spells, avg_heat_spell_duration, avg_heat_spell_intensity]
     }
     heat_spell_df = pd.DataFrame(heat_spell_data).set_index('Metric')
     heat_spell_df['Value'] = heat_spell_df['Value'].astype(str)
-    # Removed color formatting logic for Value column
     heat_spell_df['Value'] = heat_spell_df.index.map(lambda idx: f"{float(heat_spell_df.loc[idx, 'Value']):.2f} hours" if "Duration" in idx else (f"{float(heat_spell_df.loc[idx, 'Value']):.2f}°F" if "Intensity" in idx else f"{int(float(heat_spell_df.loc[idx, 'Value']))}"))
-    print(heat_spell_df.to_string()) # Changed to to_string()
+    print(heat_spell_df.to_string())
 
 
     print(f"\nCold Spells (Temperature < {cold_threshold}°F)")
-    print(f"------------------------------------------------------------")
+    print(f"------------------------------------------------------------\n")
     cold_spell_data = {
         'Metric': ['Number of Cold Spells', 'Average Duration', 'Average Intensity (below threshold)'],
         'Value': [num_cold_spells, avg_cold_spell_duration, avg_cold_spell_intensity]
     }
     cold_spell_df = pd.DataFrame(cold_spell_data).set_index('Metric')
     cold_spell_df['Value'] = cold_spell_df['Value'].astype(str)
-    # Removed color formatting logic for Value column
     cold_spell_df['Value'] = cold_spell_df.index.map(lambda idx: f"{float(cold_spell_df.loc[idx, 'Value']):.2f} hours" if "Duration" in idx else (f"{float(cold_spell_df.loc[idx, 'Value']):.2f}°F" if "Intensity" in idx else f"{int(float(cold_spell_df.loc[idx, 'Value']))}"))
-    print(cold_spell_df.to_string()) # Changed to to_string()
+    print(cold_spell_df.to_string())
 
     print(f"\nAbrupt Temperature Changes (hourly diff > {outlier_threshold:.2f}°F)")
-    print(f"------------------------------------------------------------")
+    print(f"------------------------------------------------------------\n")
     print(f"Number of Abrupt Changes Detected: {num_abrupt_changes}")
     if num_abrupt_changes > 0:
         abrupt_changes_df = abrupt_changes.reset_index()[['timestamp', 'hourly_temp_diff']].copy()
         abrupt_changes_df.columns = ['Timestamp', 'Change (°F)']
-        abrupt_changes_df['Timestamp'] = abrupt_changes_df['Timestamp'].dt.strftime('%Y-%m-%d %H:%M %Z') # Display timezone
+        # The 'Timestamp' column is already in local_tz, just format it
+        abrupt_changes_df['Timestamp'] = abrupt_changes_df['Timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S %Z') # Display timezone
         abrupt_changes_df['Change (°F)'] = abrupt_changes_df['Change (°F)'].map('{:.2f}'.format)
-        print(abrupt_changes_df.to_string(index=False)) # Changed to to_string()
+        print(abrupt_changes_df.to_string(index=False))
     else:
         print(f"No significant abrupt changes detected.")
 
@@ -442,12 +425,8 @@ if __name__ == "__main__":
         help="End date for Home Assistant data pull (YYYY-MM-DD). Defaults to today."
     )
 
-    # Removed --pretty argument
-
     args = parser.parse_args()
-    # pretty_output is no longer needed
 
-    # --- Data Source Selection and Fetching ---
     data_df = pd.DataFrame()
     try:
         if args.csv_file:
@@ -459,27 +438,23 @@ if __name__ == "__main__":
 
             ha_token_val = args.ha_token or os.environ.get('HA_TOKEN')
             if not ha_token_val:
-                # Prompt if not provided via --ha-token or env var
                 print("\nHome Assistant Long-Lived Access Token not provided.")
                 print("You can generate one in HA under Profile -> Long-Lived Access Tokens.")
                 ha_token_val = input("Please enter your HA Token: ").strip()
                 if not ha_token_val:
                     raise ValueError("Home Assistant token is required to fetch data.")
 
-            # Pass datetime objects directly
             data_df = fetch_data_from_home_assistant(
                 ha_url=args.ha_url,
                 ha_token=ha_token_val,
                 sensor_name=args.ha_sensor,
                 start_date=args.start_date,
                 end_date=args.end_date
-                # pretty_output removed
             )
             if data_df.empty:
-                sys.exit(1) # Exit if HA data fetching failed or returned no data
+                sys.exit(1)
 
-        # Now, pass the fetched/loaded DataFrame to the analysis function
-        calculate_temperature_statistics(df=data_df) # pretty_output arg removed
+        calculate_temperature_statistics(df=data_df)
 
     except FileNotFoundError:
         error_msg = f"Error: The file '{args.csv_file}' was not found."
