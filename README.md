@@ -3,8 +3,9 @@ A first attempt at creating rate of change and other statistics, using Home Assi
 The script defaults to the last 30 days, but you can specify a date range with ```--start-date``` and ```--end-date``` parameters.
 
 ```
-python ha-temp-trend.py --ha-sensor sensor.patio_climate_temperature --ha-url http://homeassistant.local:8123 --ha-token [your long-lived API token]
-
+python ha-temp-trend.py --ha-sensor sensor.patio_climate_temperature \
+  --ha-url http://homeassistant.local:8123 \
+  --ha-token [your long-lived API token]
 
 * Fetching data from Home Assistant for 'sensor.patio_climate_temperature' from 2025-05-26 07:00 to 2025-06-26 06:59 (UTC)...
 * Successfully fetched 5470 records from Home Assistant.
