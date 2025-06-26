@@ -2,6 +2,17 @@ A first attempt at creating rate of change and other statistics, using Home Assi
 
 The script defaults to the last 30 days, but you can specify a date range with ```--start-date``` and ```--end-date``` parameters.
 
+# Requirements
+
+* argparse
+* datetime
+* numpy
+* os 
+* pandas
+* requests
+* scipy
+* sys
+
 ```
 python ha-temp-trend.py --ha-sensor sensor.patio_climate_temperature \
   --ha-url http://homeassistant.local:8123 \
