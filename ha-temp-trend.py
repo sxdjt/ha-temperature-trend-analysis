@@ -119,7 +119,7 @@ def calculate_temperature_statistics(df: pd.DataFrame, baseline_temp: float = 65
     print(f"* Filtered out {initial_rows - len(df)} non-numeric/unavailable temperature readings.")
 
     df['temperature'] = df['state'].astype(float)
-    df['timestamp'] = pd.to_datetime(df['last_changed'])
+    df['timestamp'] = pd.to_datetime(df['last_changed'], format='ISO8601')
 
     # Ensure timestamps are timezone-aware (HA provides UTC typically) and then convert to local_tz
     if df['timestamp'].dt.tz is None:
