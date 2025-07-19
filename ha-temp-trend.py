@@ -6,7 +6,7 @@ import argparse
 from datetime import datetime, timedelta, timezone
 import requests
 import os # For environment variables
-
+ 
 def fetch_data_from_home_assistant(ha_url: str, ha_token: str, sensor_name: str,
                                    start_date: datetime, end_date: datetime) -> pd.DataFrame:
     """
