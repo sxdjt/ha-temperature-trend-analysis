@@ -1,6 +1,8 @@
-A first attempt at creating rate of change and other statistics, using Home Assitant historical data. 
+# Temperature Trend Analysis
 
-The script defaults to the last 30 days, but you can specify a date range with ```--start-date``` and ```--end-date``` parameters.
+[![AI Assisted](https://img.shields.io/badge/AI-Claude%20Code-AAAAAA.svg)](https://claude.ai/code)
+
+The script uses data from Home Assistant.  It defaults to the last 30 days, but you can specify a date range with ```--start-date``` and ```--end-date``` parameters.
 
 # Requirements
 
