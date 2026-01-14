@@ -1,8 +1,10 @@
 # Temperature Trend Analysis
 
-[![AI Assisted](https://img.shields.io/badge/AI-Claude%20Code-AAAAAA.svg)](https://claude.ai/code)
-
 The script uses data from Home Assistant.  It defaults to the last 30 days, but you can specify a date range with ```--start-date``` and ```--end-date``` parameters.
+
+![GitHub Release](https://img.shields.io/github/v/release/sxdjt/ha-temperature-trend-analysis?style=for-the-badge)
+[![AI Assisted](https://img.shields.io/badge/AI-Claude%20Code-AAAAAA.svg?style=for-the-badge)](https://claude.ai/code)
+![GitHub License](https://img.shields.io/github/license/sxdjt/ha-temperature-trend-analysis?style=for-the-badge)
 
 # Requirements
 
