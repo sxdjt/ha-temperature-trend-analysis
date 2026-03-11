@@ -150,3 +150,5 @@ Number of Abrupt Changes Detected: 11
 --- ANALYSIS COMPLETE ---
 
 ```
+
+.
